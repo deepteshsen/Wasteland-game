@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Shards of the Waste Land — DH Immersive Edition</title>
+
+<link rel="stylesheet" href="style.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+</head>
+<body>
+
+<div id="overlay">
+    <h1>SHARDS OF THE WASTE LAND</h1>
+
+    <div id="controls">
+        <button onclick="generateFragments()">Generate Fragments</button>
+        <button onclick="exportBuild()">Export Interpretation</button>
+        <button onclick="importBuild()">Import Interpretation</button>
+        <button onclick="toggleTEI()">Scholarly Mode</button>
+        <button onclick="playDrone()">Soundscape</button>
+    </div>
+
+    <div id="fragmentZone"></div>
+
+    <div id="teiPanel" style="display:none;">
+        <h3>TEI Scholarly Mode</h3>
+        <textarea id="teiInput" placeholder="Paste TEI XML here"></textarea>
+        <button onclick="parseTEI()">Parse TEI</button>
+        <div id="teiOutput"></div>
+    </div>
+</div>
+
+<div id="graph"></div>
+
+<script type="module">
+
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160/build/three.module.js";
+import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
+
+/* ------------------ WEBGL ENVIRONMENT ------------------ */
+
+let scene = new THREE.Scene();
+let camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+let renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+camera.position.z = 5;
+
+let stars = [];
+for(let i=0;i<300;i++){
+    let geo = new THREE.SphereGeometry(0.05, 8, 8);
+    let mat = new THREE.MeshBasicMaterial({color:0xffffff});
+    let star = new THREE.Mesh(geo, mat);
+    star.position.set((Math.random()-0.5)*20,(Math.random()-0.5)*20,(Math.random()-0.5)*20);
+    scene.add(star);
+    stars.push(star);
+}
+
+function animate(){
+    requestAnimationFrame(animate);
+    scene.rotation.y += 0.0004;
+    renderer.render(scene,camera);
+}
+animate();
+
+/* ------------------ FRAGMENTS + DRAG CONSTELLATION ------------------ */
+
+let fragments = [
+"April is the cruellest month",
+"I will show you fear in a handful of dust",
+"Sweet Thames, run softly",
+"DA",
+"Shantih shantih shantih",
+"Burning burning burning",
+"Here is no water but only rock"
+];
+
+let selected = [];
+
+window.generateFragments = function(){
+    let zone = document.getElementById("fragmentZone");
+    zone.innerHTML = "";
+    fragments.forEach(text=>{
+        let div = document.createElement("div");
+        div.className="fragment";
+        div.innerText=text;
+        div.draggable=true;
+
+        div.ondragstart = e=>{
+            e.dataTransfer.setData("text",text);
+        };
+
+        div.onclick = ()=>{
+            div.classList.toggle("active");
+            if(selected.includes(text)){
+                selected = selected.filter(x=>x!==text);
+            } else {
+                selected.push(text);
+            }
+            updateGraph();
+        };
+
+        zone.appendChild(div);
+    });
+};
+
+/* ------------------ AI INTERTEXT ENGINE ------------------ */
+
+function intertext(fragment){
+    let map={
+        dust:"Genesis / Dante",
+        water:"Upanishads / Buddha",
+        fire:"Heraclitus / Augustine",
+        rock:"Exodus / Grail Legend",
+        shantih:"Brihadaranyaka Upanishad"
+    };
+    for(let k in map){
+        if(fragment.toLowerCase().includes(k)){
+            return map[k];
+        }
+    }
+    return "Modernist Fragment";
+}
+
+/* ------------------ D3 NETWORK GRAPH ------------------ */
+
+function updateGraph(){
+
+document.getElementById("graph").innerHTML="";
+
+let nodes = selected.map(s=>({id:s}));
+let links = [];
+
+selected.forEach(s=>{
+    links.push({source:s, target:intertext(s)});
+    nodes.push({id:intertext(s)});
+});
+
+let width=400, height=window.innerHeight;
+
+let svg = d3.select("#graph")
+.append("svg")
+.attr("width",width)
+.attr("height",height);
+
+let simulation = d3.forceSimulation(nodes)
+.force("link", d3.forceLink(links).id(d=>d.id).distance(80))
+.force("charge", d3.forceManyBody().strength(-200))
+.force("center", d3.forceCenter(width/2,height/2));
+
+let link = svg.selectAll("line")
+.data(links)
+.enter().append("line")
+.attr("stroke","#666");
+
+let node = svg.selectAll("circle")
+.data(nodes)
+.enter().append("circle")
+.attr("r",6)
+.attr("fill","#ccc");
+
+simulation.on("tick",()=>{
+link
+.attr("x1",d=>d.source.x)
+.attr("y1",d=>d.source.y)
+.attr("x2",d=>d.target.x)
+.attr("y2",d=>d.target.y);
+
+node
+.attr("cx",d=>d.x)
+.attr("cy",d=>d.y);
+});
+}
+
+/* ------------------ EXPORT / IMPORT ------------------ */
+
+window.exportBuild=function(){
+let data = JSON.stringify(selected);
+let blob = new Blob([data],{type:"application/json"});
+let url = URL.createObjectURL(blob);
+let a = document.createElement("a");
+a.href=url;
+a.download="interpretation.json";
+a.click();
+};
+
+window.importBuild=function(){
+let input=document.createElement("input");
+input.type="file";
+input.onchange=e=>{
+let file=e.target.files[0];
+let reader=new FileReader();
+reader.onload=()=>{
+selected=JSON.parse(reader.result);
+generateFragments();
+updateGraph();
+};
+reader.readAsText(file);
+};
+input.click();
+};
+
+/* ------------------ TEI MODE ------------------ */
+
+window.toggleTEI=function(){
+let panel=document.getElementById("teiPanel");
+panel.style.display = panel.style.display==="none"?"block":"none";
+};
+
+window.parseTEI=function(){
+let xml=document.getElementById("teiInput").value;
+let parser=new DOMParser();
+let doc=parser.parseFromString(xml,"text/xml");
+let lines=doc.getElementsByTagName("l");
+let output="";
+for(let l of lines){
+output+=l.textContent+"<br>";
+}
+document.getElementById("teiOutput").innerHTML=output;
+};
+
+/* ------------------ SOUND ------------------ */
+
+window.playDrone=function(){
+let ctx=new (window.AudioContext||window.webkitAudioContext)();
+let osc=ctx.createOscillator();
+osc.frequency.value=70;
+osc.connect(ctx.destination);
+osc.start();
+setTimeout(()=>osc.stop(),4000);
+};
+
+generateFragments();
+
+</script>
+
+</body>
+</html>
